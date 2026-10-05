@@ -44,6 +44,18 @@ COPY package*.json ./
 RUN npm install --omit=dev --ignore-scripts --no-audit --no-fund \
  && npm cache clean --force
 
+# `--ignore-scripts` also skips the @prisma/engines postinstall, so the
+# Prisma schema-engine binary is absent from the image. `prisma db push`
+# (run by the CI health-check step and by anyone applying migrations in the
+# container) would then try to download it at runtime into the root-owned
+# node_modules tree, which the non-root `node` user cannot write to:
+#   Error: Can't write to /app/node_modules/@prisma/engines
+# Run the engines postinstall explicitly here, as root, while the layer is
+# being built so the binary ships in the image and the runtime user only ever
+# reads it. The @prisma/client postinstall stays skipped (its generated client
+# is copied from the builder), so no schema is required at this point.
+RUN node /app/node_modules/@prisma/engines/scripts/postinstall.js
+
 # Copy the prisma schema into the runner. The boot-and-check-health step
 # in .github/workflows/ci.yml runs `npx prisma db push` against this
 # container; without prisma/schema.prisma on disk, that command errors
