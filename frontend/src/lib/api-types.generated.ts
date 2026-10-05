@@ -119,6 +119,12 @@ export interface paths {
          *     enabled and recent per-event failures spike (≥50% of attempts in the
          *     last 5 minutes, with ≥3 samples), the endpoint returns 503 even if
          *     lag looks healthy (the IndexerState upsert bumps updatedAt every poll).
+         *     **Redis** is optional. When it is configured but unavailable or does not
+         *     answer a ping in time, `status` is `degraded` but the response stays
+         *     200, so a Redis outage does not fail liveness probes.
+         *     Every dependency probe runs in parallel and is bounded by
+         *     `HEALTHCHECK_TIMEOUT_MS` (default 800 ms), so the endpoint answers in
+         *     under a second even when a dependency hangs.
          */
         get: {
             parameters: {
@@ -129,7 +135,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Service is healthy */
+                /** @description Service is healthy (Redis may still be degraded) */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -3234,6 +3240,7 @@ export interface components {
         };
         HealthResponse: {
             /**
+             * @description `degraded` with HTTP 503 when a liveness check fails; `degraded` with HTTP 200 when only Redis is unavailable or timed out
              * @example ok
              * @enum {string}
              */
@@ -3243,6 +3250,12 @@ export interface components {
              * @enum {string}
              */
             db: "connected" | "disconnected";
+            /**
+             * @description Same as checks.redis.status
+             * @example ok
+             * @enum {string}
+             */
+            redis?: "ok" | "unavailable" | "timeout" | "not_configured";
             /** @description Whether the event indexer is configured */
             indexerEnabled: boolean;
             /** @description Seconds since last indexer update, or null when no state row exists yet */
@@ -3264,7 +3277,7 @@ export interface components {
             checks: {
                 database?: {
                     /** @enum {string} */
-                    status?: "ok" | "down";
+                    status?: "ok" | "down" | "timeout";
                 };
                 indexer?: {
                     /** @enum {string} */
@@ -3274,7 +3287,7 @@ export interface components {
                 };
                 redis?: {
                     /** @enum {string} */
-                    status?: "ok" | "unavailable" | "not_configured";
+                    status?: "ok" | "unavailable" | "timeout" | "not_configured";
                 };
                 sorobanRpc?: {
                     /** @enum {string} */
