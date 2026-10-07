@@ -136,15 +136,17 @@ services:
       mock-soroban-rpc:
         condition: service_healthy
     healthcheck:
-      # Probe 127.0.0.1 explicitly: busybox wget resolves `localhost` to IPv6
-      # first, which the IPv4-bound server does not answer.
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3001/health"]
+      # node-based check: the runtime image only ships busybox wget, which does
+      # not understand GNU flags like --no-verbose/--tries.
+      test:
+        - CMD
+        - node
+        - "-e"
+        - "require('http').get('http://127.0.0.1:3001/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
       interval: 10s
       timeout: 5s
       retries: 5
-      # Prisma + DB warm-up happens after the port opens; give it room before
-      # the first probe is counted against the retry budget.
-      start_period: 15s
+      start_period: 30s
     restart: unless-stopped
 
   frontend:
@@ -171,17 +173,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-      # node-based check: the runtime image only ships busybox wget, which does
-      # not understand GNU flags like --no-verbose/--tries.
-      test:
-        - CMD
-        - node
-        - "-e"
-        - "require('http').get('http://127.0.0.1:3001/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
     restart: unless-stopped
 
 volumes:
