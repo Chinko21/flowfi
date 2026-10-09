@@ -107,13 +107,26 @@ export interface paths {
         };
         /**
          * Detailed health check
-         * @description Returns liveness and readiness information. Liveness (200 vs 503) is
-         *     determined by DB reachability alone. Indexer lag is reported in the
-         *     body for observability but only forces a 503 when the indexer is
-         *     actually enabled (`STREAM_CONTRACT_ID` env var set) and its state row
-         *     is stale (lag > 60 s), or when recent event-processing failures spike.
-         *     Response is cached in-memory for 2 s so consecutive rapid requests do
-         *     not re-execute the DB and Redis probes (issue #1511).
+         * @description Returns liveness and readiness information.
+         *     **Liveness** (200 vs 503) is determined by DB reachability alone.
+         *     **Indexer lag** is reported in the body for observability but only
+         *     forces a 503 when the indexer is actually enabled
+         *     (`STREAM_CONTRACT_ID` env var set) and its state row is stale
+         *     (lag > 60 s). A cold-started instance with no state row yet, or a
+         *     deployment with the indexer intentionally disabled, always returns 200
+         *     as long as the DB is reachable.
+         *     **Event-processing failures** are also reported. When the indexer is
+         *     enabled and recent per-event failures spike (≥50% of attempts in the
+         *     last 5 minutes, with ≥3 samples), the endpoint returns 503 even if
+         *     lag looks healthy (the IndexerState upsert bumps updatedAt every poll).
+         *     **Redis** is optional. When it is configured but unavailable or does not
+         *     answer a ping in time, `status` is `degraded` but the response stays
+         *     200, so a Redis outage does not fail liveness probes.
+         *     Every dependency probe runs in parallel and is bounded by
+         *     `HEALTHCHECK_TIMEOUT_MS` (default 800 ms), so the endpoint answers in
+         *     under a second even when a dependency hangs.
+         *     The response is cached in-memory for 2 s so consecutive rapid requests
+         *     do not re-run the probes (issue #1511).
          */
         get: {
             parameters: {
@@ -129,7 +142,9 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["HealthResponse"];
+                    };
                 };
                 /** @description Rate limited */
                 429: {
@@ -143,7 +158,9 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["HealthResponse"];
+                    };
                 };
             };
         };
